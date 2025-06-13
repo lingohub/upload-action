@@ -8,8 +8,11 @@ inputs:
   api_key:
     description: 'Lingohub API key'
     required: true
-  project_id:
-    description: 'Lingohub project ID'
+  workspace_url:
+    description: 'Lingohub workspace URL (e.g., https://app.lingohub.com/your-workspace)'
+    required: true
+  project_url:
+    description: 'Lingohub project URL (e.g., https://app.lingohub.com/your-workspace/your-project)'
     required: true
   files:
     description: 'Path or glob pattern to files to upload (e.g. ./locales/*.json)'

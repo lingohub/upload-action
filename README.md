@@ -16,12 +16,13 @@ This GitHub Action uploads one or more source files to your [Lingohub](https://l
 
 ## 📦 Inputs
 
-| Name         | Required | Description                                                                                                            |
-|--------------|----------|------------------------------------------------------------------------------------------------------------------------|
-| `api_key`    | ✅ Yes   | Your Lingohub API key (use [repository secrets](https://docs.github.com/en/actions/security-guides/encrypted-secrets)) |
-| `project_id` | ✅ Yes   | The ID of your Lingohub project                                                                                        |
-| `files`      | ✅ Yes   | Path or glob pattern to the file(s) you want to upload (e.g. `./locales/*.json`)                                       |
-| `locale`     | ❌ No    | Locale option for the files. Use auto (default) for automatic detection or specify a locale (e.g. en)                  |
+| Name            | Required | Description                                                                                                            |
+|-----------------|----------|------------------------------------------------------------------------------------------------------------------------|
+| `api_key`       | ✅ Yes   | Your Lingohub API key (use [repository secrets](https://docs.github.com/en/actions/security-guides/encrypted-secrets)) |
+| `workspace_url` | ✅ Yes   | The URL of your Lingohub workspace (e.g., https://app.lingohub.com/your-workspace)                                     |
+| `project_url`   | ✅ Yes   | The URL of your Lingohub project (e.g., https://app.lingohub.com/your-workspace/your-project)                         |
+| `files`         | ✅ Yes   | Path or glob pattern to the file(s) you want to upload (e.g. `./locales/*.json`)                                       |
+| `locale`        | ❌ No    | Locale option for the files. Use auto (default) for automatic detection or specify a locale (e.g. en)                  |
 
 ---
 
@@ -47,7 +48,8 @@ jobs:
         uses: lingohub/upload-action@v1
         with:
           api_key: ${{ secrets.LINGOHUB_API_KEY }}
-          project_id: your-project-id
+          workspace_url: https://app.lingohub.com/your-workspace
+          project_url: https://app.lingohub.com/your-workspace/your-project
           files: ./locales/*.json
 ```
 
@@ -71,11 +73,15 @@ jobs:
         uses: lingohub/upload-action@v1
         with:
           api_key: ${{ secrets.LINGOHUB_API_KEY }}
-          project_id: your-project-id
+          workspace_url: https://app.lingohub.com/your-workspace
+          project_url: https://app.lingohub.com/your-workspace/your-project
           files: ./locales/en/*.json
           locale: en
 ```
 
 ### 📝 Locale Handling
-* Use `locale: auto` (default) to let Lingohub automatically detect the locale from your files
-* Use a specific language code (e.g., `en`, `de`, `fr`) to explicitly set the locale for all uploaded files
+Use locale: auto (default) to let Lingohub automatically detect the locale from your files
+Use a specific language code (e.g., en, de, fr) to explicitly set the locale for all uploaded files
+
+## 📄 License
+Apache-2.0 © lingohub GmbH

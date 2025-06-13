@@ -24,8 +24,10 @@ describe('Lingohub Upload Action', () => {
             switch (name) {
                 case 'api_key':
                     return 'test-api-key';
-                case 'project_id':
-                    return 'test-project-id';
+                case 'workspace_url':
+                    return 'https://app.lingohub.com/test-workspace';
+                case 'project_url':
+                    return 'https://app.lingohub.com/test-workspace/test-project';
                 case 'files':
                     return '*.json';
                 case 'locale':
@@ -66,13 +68,13 @@ describe('Lingohub Upload Action', () => {
         core.getInput.mockImplementation((name) => {
             if (name === 'locale') return 'en';
             return name === 'api_key' ? 'test-api-key' :
-                name === 'project_id' ? 'test-project-id' :
-                    name === 'files' ? '*.json' : '';
+                name === 'workspace_url' ? 'https://app.lingohub.com/test-workspace' :
+                    name === 'project_url' ? 'https://app.lingohub.com/test-workspace/test-project' :
+                        name === 'files' ? '*.json' : '';
         });
 
         await run();
 
-        // Instead of expecting a specific call order, check if the call was made
         expect(core.getInput).toHaveBeenCalledWith('locale', {required: false});
         expect(core.info).toHaveBeenCalledWith('Using locale option: en');
         expect(fetch).toHaveBeenCalledTimes(2);
@@ -98,15 +100,15 @@ describe('Lingohub Upload Action', () => {
             ok: false,
             status: 400,
             statusText: 'Bad Request',
-            json: jest.fn().mockResolvedValue({message: 'Invalid project ID'})
+            json: jest.fn().mockResolvedValue({message: 'Invalid project URL'})
         };
         fetch.mockResolvedValue(errorResponse);
 
         await run();
 
         expect(core.error).toHaveBeenCalledWith('Response status: 400');
-        expect(core.error).toHaveBeenCalledWith(expect.stringContaining('Invalid project ID'));
-        expect(core.setFailed).toHaveBeenCalledWith('Failed to upload test1.json: Invalid project ID');
+        expect(core.error).toHaveBeenCalledWith(expect.stringContaining('Invalid project URL'));
+        expect(core.setFailed).toHaveBeenCalledWith('Failed to upload test1.json: Invalid project URL');
     });
 
     test('handles missing required input', async () => {

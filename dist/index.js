@@ -34683,7 +34683,8 @@ async function run() {
     try {
         // Get inputs
         const apiKey = core.getInput('api_key', {required: true});
-        const projectId = core.getInput('project_id', {required: true});
+        const workspaceUrl = core.getInput('workspace_url', {required: true});
+        const projectUrl = core.getInput('project_url', {required: true});
         const filePath = core.getInput('files', {required: true});
         const localeOption = core.getInput('locale', {required: false}) || 'auto';
 
@@ -34707,14 +34708,14 @@ async function run() {
 
             // Handle locale based on option
             if (localeOption !== 'auto') {
-                // Use a specific locale if provided
                 formData.append('locale', localeOption);
                 core.info(`Using specified locale: ${localeOption}`);
             } else {
                 core.info('Using automatic locale detection');
             }
 
-            const response = await fetch(`https://api.lingohub.com/v1/projects/${projectId}/resources`, {
+            // Use projectUrl as required by the new API
+            const response = await fetch(`${projectUrl}/api/v1/resources`, {
                 method: 'POST',
                 headers: {
                     'Authorization': `Bearer ${apiKey}`,
@@ -34739,10 +34740,7 @@ async function run() {
     }
 }
 
-// Execute the action when this file is run directly
 run();
-
-// Export for testing
 module.exports = { run };
 
 /***/ }),
