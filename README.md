@@ -20,13 +20,13 @@ It supports glob patterns, multiple files, and is designed for seamless integrat
 
 ## 📦 Inputs
 
-| Name            | Required | Description                                                                                                                                                |
-|-----------------|----------|------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `api_key`       | ✅ Yes   | Your Lingohub API key (use [repository secrets](https://docs.github.com/en/actions/security-guides/encrypted-secrets))                                     |
-| `workspace_url` | ✅ Yes   | The URL of your Lingohub workspace (e.g., https://app.lingohub.com/your-workspace)                                                                         |
-| `project_url`   | ✅ Yes   | The URL of your Lingohub project (e.g., https://app.lingohub.com/your-workspace/your-project)                                                              |
-| `files`         | ✅ Yes   | Paths or glob patterns to the file(s) you want to upload (e.g. `./locales/en.yml,./locales/email/*.yml`). The order of files is preserved.                 |
-| `locale`        | ❌ No    | Locale option for the files. Use `auto` (default) for automatic detection or specify a locale (e.g. `en`). The specified locale is used for *all* files.    |
+| Name            | Required | Description                                                                                                                                              |
+|-----------------|----------|----------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `api_key`       | ✅ Yes   | Your Lingohub API key (use [repository secrets](https://docs.github.com/en/actions/security-guides/encrypted-secrets))                                   |
+| `workspace_url` | ✅ Yes   | The URL of your Lingohub workspace (e.g., https://app.lingohub.com/your-workspace)                                                                       |
+| `project_url`   | ✅ Yes   | The URL of your Lingohub project (e.g., https://app.lingohub.com/your-workspace/projects/your-project)                                                   |
+| `files`         | ✅ Yes   | Paths or glob patterns to the file(s) you want to upload (e.g. `./locales/en.yml,./locales/email/*.yml`). The order of files is preserved.               |
+| `locale`        | ❌ No    | Locale option for the files. Use `auto` (default) for automatic detection or specify a locale (e.g. `en`). The specified locale is used for *all* files. |
 
 ---
 
