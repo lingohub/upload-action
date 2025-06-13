@@ -17,8 +17,18 @@ async function run() {
         core.info(`Using locale option: ${localeOption}`);
 
         // Find files based on pattern
-        const globber = await glob.create(filePath);
-        const files = await globber.glob();
+        const patterns = filePath.split(',').map(p => p.trim());
+        let files = [];
+        for (const pattern of patterns) {
+            const globber = await glob.create(pattern);
+            const matched = await globber.glob();
+            for (const file of matched) {
+                // Avoid duplicates
+                if (!files.includes(file)) {
+                    files.push(file);
+                }
+            }
+        }
 
         if (files.length === 0) {
             core.setFailed(`No files found matching pattern: ${filePath}`);

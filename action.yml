@@ -15,7 +15,7 @@ inputs:
     description: 'Lingohub project URL (e.g., https://app.lingohub.com/your-workspace/your-project)'
     required: true
   files:
-    description: 'Path or glob pattern to files to upload (e.g. ./locales/*.json)'
+    description: 'Paths or glob pattern to files to upload (e.g. ./locales/*.json)'
     required: true
   locale:
     description: 'Locale option for the files. Use "auto" for automatic detection or specify a locale (e.g., "en").'
