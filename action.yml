@@ -1,6 +1,6 @@
 name: 'Upload to Lingohub'
-description: 'Uploads source content files to a Lingohub project.'
-author: 'Lingohub Team'
+description: 'Upload source content files to your Lingohub project for translation. Supports glob patterns and locale configuration.'
+author: 'lingohub GmbH'
 branding:
   icon: 'upload-cloud'
   color: 'blue'
@@ -12,7 +12,7 @@ inputs:
     description: 'Lingohub project ID'
     required: true
   files:
-    description: 'Path to file(s) to upload'
+    description: 'Path or glob pattern to files to upload (e.g. ./locales/*.json)'
     required: true
   locale:
     description: 'Locale option for the files. Use "auto" for automatic detection or specify a locale (e.g., "en").'
