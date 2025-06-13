@@ -1,0 +1,23 @@
+name: 'Upload to Lingohub'
+description: 'Uploads source content files to a Lingohub project.'
+author: 'Lingohub Team'
+branding:
+  icon: 'upload-cloud'
+  color: 'blue'
+inputs:
+  api_key:
+    description: 'Lingohub API key'
+    required: true
+  project_id:
+    description: 'Lingohub project ID'
+    required: true
+  files:
+    description: 'Path to file(s) to upload'
+    required: true
+  locale:
+    description: 'Locale option for the files. Use "auto" for automatic detection or specify a locale (e.g., "en").'
+    required: false
+    default: 'auto'
+runs:
+  using: 'node16'
+  main: 'dist/index.js'

@@ -1,0 +1,39 @@
+{
+  "name": "lingohub-upload-action",
+  "version": "1.0.0",
+  "description": "GitHub Action to upload files to Lingohub.",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "ncc build src/index.js -o dist",
+    "prepare": "npm run build",
+    "test": "jest"
+  },
+  "keywords": [
+    "GitHub",
+    "Actions",
+    "Lingohub",
+    "i18n",
+    "translation",
+    "localization"
+  ],
+  "author": "lingohub GmbH",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/lingohub/upload-action.git"
+  },
+  "bugs": {
+    "url": "https://github.com/lingohub/upload-action/issues"
+  },
+  "homepage": "https://github.com/lingohub/upload-action#readme",
+  "dependencies": {
+    "@actions/core": "^1.11.1",
+    "@actions/glob": "^0.5.0",
+    "form-data": "^4.0.0",
+    "node-fetch": "^2.6.7"
+  },
+  "devDependencies": {
+    "@vercel/ncc": "^0.38.3",
+    "jest": "^30.0.0"
+  }
+}
