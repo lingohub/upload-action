@@ -34715,7 +34715,7 @@ async function run() {
             }
 
             // Use projectUrl as required by the new API
-            const response = await fetch(`${projectUrl}/api/v1/resources`, {
+            const response = await fetch(`https://api.lingohub.com/v1/${workspaceUrl}/projects/${projectUrl}/resources`, {
                 method: 'POST',
                 headers: {
                     'Authorization': `Bearer ${apiKey}`,
