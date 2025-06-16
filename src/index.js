@@ -5,6 +5,7 @@ const fetch = require('node-fetch');
 const FormData = require('form-data');
 const path = require('path');
 const archiver = require('archiver');
+const { PassThrough } = require('stream');
 
 async function run() {
     try {
@@ -34,10 +35,12 @@ async function run() {
 
         // Create a zip archive in memory
         const archive = archiver('zip', { zlib: { level: 9 } });
+        const zipStream = new PassThrough();
         const zipChunks = [];
-        archive.on('data', chunk => zipChunks.push(chunk));
+        zipStream.on('data', chunk => zipChunks.push(chunk));
         archive.on('warning', err => core.warning(err.message));
         archive.on('error', err => { throw err; });
+        archive.pipe(zipStream);
 
         for (const file of files) {
             // Add file to archive with its relative path from the repo root
@@ -45,12 +48,12 @@ async function run() {
             archive.file(file, { name: relativePath });
             core.info(`Added to zip: ${relativePath}`);
         }
-        await archive.finalize();
 
         // Wait for the archive to finish and get the buffer
         await new Promise((resolve, reject) => {
-            archive.on('end', resolve);
+            archive.on('finish', resolve);
             archive.on('error', reject);
+            archive.finalize();
         });
         const zipBuffer = Buffer.concat(zipChunks);
 
@@ -63,8 +66,7 @@ async function run() {
 
         // Upload zip to Lingohub
         core.info('Uploading zip to Lingohub...');
-        // Note: No workspace ID is needed because we are using the project ID directly in the URL
-        const response = await fetch(`https://api.lingohub.com/v1/dummyWorkspace/projects/${projectId}/resources/zip`, {
+        const response = await fetch(`https://api.lingohub.com/v1/projects/${projectId}/resources/zip`, {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${apiKey}`,
