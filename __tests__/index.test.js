@@ -74,7 +74,17 @@ describe('Lingohub Upload Action', () => {
     test('successfully uploads files as a zip', async () => {
         await run();
 
-        expect(fetch).toHaveBeenCalledTimes(1);
+        // Verify URL has correct format including dummyWorkspaceUrl
+        const expectedUrl = `https://api.lingohub.com/v1/dummyWorkspaceUrl/projects/pr_18JCETCbSz7e-40731/resources/zip`;
+        expect(fetch).toHaveBeenCalledWith(
+            expectedUrl,
+            expect.objectContaining({
+                method: 'POST',
+                headers: expect.objectContaining({
+                    'Authorization': 'Bearer test-api-key'
+                })
+            })
+        );
         expect(core.info).toHaveBeenCalledWith('Successfully uploaded zip with all files.');
         expect(core.setFailed).not.toHaveBeenCalled();
     });

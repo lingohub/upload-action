@@ -1,6 +1,6 @@
 {
   "name": "lingohub-upload-action",
-  "version": "1.5.2",
+  "version": "1.5.3",
   "description": "GitHub Action to upload files to Lingohub.",
   "main": "dist/index.js",
   "scripts": {

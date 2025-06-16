@@ -5,7 +5,7 @@ const fetch = require('node-fetch');
 const FormData = require('form-data');
 const path = require('path');
 const archiver = require('archiver');
-const { PassThrough } = require('stream');
+const {PassThrough} = require('stream');
 
 async function run() {
     try {
@@ -43,7 +43,7 @@ async function run() {
 
         // Create a zip archive in memory
         core.info('Creating zip archive...');
-        const archive = archiver('zip', { zlib: { level: 9 } });
+        const archive = archiver('zip', {zlib: {level: 9}});
         const zipStream = new PassThrough();
         const zipChunks = [];
 
@@ -67,7 +67,7 @@ async function run() {
 
                 // Add file to archive with its relative path from the repo root
                 const relativePath = path.relative(process.cwd(), file);
-                archive.file(file, { name: relativePath });
+                archive.file(file, {name: relativePath});
                 core.info(`Added to zip: ${relativePath} (${formatBytes(stats.size)})`);
             } catch (error) {
                 core.warning(`Skipping file ${file}: ${error.message}`);
@@ -101,7 +101,9 @@ async function run() {
         });
 
         // Upload zip to Lingohub
-        const apiUrl = `https://api.lingohub.com/v1/projects/${projectId}/resources/zip`;
+        // Note: Since we are using projetId, no need for workspaceUrl in the URL
+        // dummyWorkspaceUrl is needed to cal the correct API endpoint
+        const apiUrl = `https://api.lingohub.com/v1/dummyWorkspaceUrl/projects/${projectId}/resources/zip`;
         core.info(`Uploading zip (${formatBytes(zipBuffer.length)}) to Lingohub API: ${apiUrl}`);
 
         let uploadStartTime = Date.now();
@@ -115,7 +117,7 @@ async function run() {
         });
         let uploadDuration = Date.now() - uploadStartTime;
 
-        core.info(`Upload completed in ${(uploadDuration/1000).toFixed(2)}s with status: ${response.status} ${response.statusText}`);
+        core.info(`Upload completed in ${(uploadDuration / 1000).toFixed(2)}s with status: ${response.status} ${response.statusText}`);
 
         const data = await response.json();
         core.info(`Response data: ${JSON.stringify(data, null, 2)}`);
@@ -151,4 +153,4 @@ function formatBytes(bytes, decimals = 2) {
 }
 
 run();
-module.exports = { run };
+module.exports = {run};
