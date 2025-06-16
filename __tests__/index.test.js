@@ -9,7 +9,10 @@ jest.mock('@actions/glob');
 jest.mock('node-fetch');
 jest.mock('fs', () => ({
     ...jest.requireActual('fs'),
-    createReadStream: jest.fn().mockReturnValue('file-stream')
+    createReadStream: jest.fn().mockReturnValue('file-stream'),
+    accessSync: jest.fn(),
+    statSync: jest.fn().mockReturnValue({ size: 1024 }),
+    constants: { R_OK: 4 }
 }));
 
 jest.mock('archiver', () => {
@@ -17,10 +20,11 @@ jest.mock('archiver', () => {
         const events = {};
         return {
             file: jest.fn(),
+            pipe: jest.fn().mockReturnThis(),
             finalize: jest.fn().mockImplementation(function () {
-                // Simulate async finalize and emit 'end'
+                // Simulate async finalize and emit 'finish'
                 setImmediate(() => {
-                    if (events['end']) events['end']();
+                    if (events['finish']) events['finish']();
                 });
                 return Promise.resolve();
             }),
