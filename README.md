@@ -12,27 +12,25 @@ It supports glob patterns, multiple files, and is designed for seamless integrat
 ## 🚀 Features
 
 - Supports glob patterns and multiple files (order is preserved as specified in the `files` input)
-- Streams files directly to the Lingohub API
-- Optional locale configuration (`auto` or explicit locale)
+- Uploads all files as a single zip archive to the Lingohub API, preserving original file paths
+- Automatic locale detection by Lingohub
 - Built for GitHub CI/CD pipelines
 
 ---
 
 ## 📦 Inputs
 
-| Name            | Required | Description                                                                                                                                              |
-|-----------------|----------|----------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `api_key`       | ✅ Yes   | Your Lingohub API key (use [repository secrets](https://docs.github.com/en/actions/security-guides/encrypted-secrets))                                   |
-| `workspace_url` | ✅ Yes   | The URL of your Lingohub workspace (e.g., https://app.lingohub.com/your-workspace)                                                                       |
-| `project_url`   | ✅ Yes   | The URL of your Lingohub project (e.g., https://app.lingohub.com/your-workspace/projects/your-project)                                                   |
-| `files`         | ✅ Yes   | Paths or glob patterns to the file(s) you want to upload (e.g. `./locales/en.yml,./locales/email/*.yml`). The order of files is preserved.               |
-| `locale`        | ❌ No    | Locale option for the files. Use `auto` (default) for automatic detection or specify a locale (e.g. `en`). The specified locale is used for *all* files. |
+| Name          | Required | Description                                                                                                                           |
+|---------------|----------|---------------------------------------------------------------------------------------------------------------------------------------|
+| `api_key`     | ✅ Yes   | Your Lingohub API key (use [repository secrets](https://docs.github.com/en/actions/security-guides/encrypted-secrets))                |
+| `project_id`  | ✅ Yes   | The Lingohub project ID (e.g., `pr_18JCETCbSz7e-40731`)                                                                              |
+| `files`       | ✅ Yes   | Paths or glob patterns to the file(s) you want to upload (e.g. `./locales/en.yml,./locales/email/*.yml`). The order of files is preserved. |
 
 ---
 
 ## 🛠 Usage
 
-**Basic Example (with Automatic Locale Detection)**
+**Basic Example (Automatic Locale Detection)**
 
 ```yaml
 name: Upload to Lingohub
@@ -52,40 +50,12 @@ jobs:
         uses: lingohub/upload-action@v1
         with:
           api_key: ${{ secrets.LINGOHUB_API_KEY }}
-          workspace_url: https://app.lingohub.com/your-workspace
-          project_url: https://app.lingohub.com/your-workspace/your-project
+          project_id: pr_18JCETCbSz7e-40731
           files: ./locales/en.yml,./locales/email/*.yml
 ```
 
-Specifying a Locale
-
-```yaml
-name: Upload to Lingohub
-
-on:
-  push:
-    branches: [ main ]
-
-jobs:
-  upload:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v3
-
-      - name: Upload English Source Files
-        uses: lingohub/upload-action@v1
-        with:
-          api_key: ${{ secrets.LINGOHUB_API_KEY }}
-          workspace_url: https://app.lingohub.com/your-workspace
-          project_url: https://app.lingohub.com/your-workspace/your-project
-          files: ./locales/en/*.json
-          locale: en
-```
-
 ### 📝 Locale Handling
-Use locale: auto (default) to let Lingohub automatically detect the locale from your files.
-Use a specific language code (e.g., en, de, fr) to explicitly set the locale for *all uploaded files*.
+Locale is detected automatically by Lingohub. No need to specify a locale.
 
 ### Source vs. Target Files
 Recommended: Upload only your source files (e.g., English originals).

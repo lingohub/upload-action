@@ -12,6 +12,24 @@ jest.mock('fs', () => ({
     createReadStream: jest.fn().mockReturnValue('file-stream')
 }));
 
+jest.mock('archiver', () => {
+    return jest.fn(() => {
+        const events = {};
+        return {
+            file: jest.fn(),
+            finalize: jest.fn().mockImplementation(function () {
+                // Simulate async finalize and emit 'end'
+                setImmediate(() => {
+                    if (events['end']) events['end']();
+                });
+                return Promise.resolve();
+            }),
+            on: (event, cb) => { events[event] = cb; },
+            emit: (event, ...args) => { if (events[event]) events[event](...args); }
+        };
+    });
+});
+
 // Import the run function directly
 const { run } = require('../src/index');
 
@@ -24,14 +42,10 @@ describe('Lingohub Upload Action', () => {
             switch (name) {
                 case 'api_key':
                     return 'test-api-key';
-                case 'workspace_url':
-                    return 'https://app.lingohub.com/test-workspace';
-                case 'project_url':
-                    return 'https://app.lingohub.com/test-workspace/test-project';
+                case 'project_id':
+                    return 'pr_18JCETCbSz7e-40731';
                 case 'files':
                     return '*.json';
-                case 'locale':
-                    return 'auto';
                 default:
                     return '';
             }
@@ -53,33 +67,11 @@ describe('Lingohub Upload Action', () => {
         fetch.mockResolvedValue(mockResponse);
     });
 
-    test('successfully uploads files with automatic locale detection', async () => {
+    test('successfully uploads files as a zip', async () => {
         await run();
 
-        expect(core.getInput).toHaveBeenCalledWith('locale', {required: false});
-        expect(core.info).toHaveBeenCalledWith('Using locale option: auto');
-        expect(fetch).toHaveBeenCalledTimes(2);
-        expect(core.info).toHaveBeenCalledWith('Successfully uploaded test1.json');
-        expect(core.info).toHaveBeenCalledWith('Successfully uploaded test2.json');
-        expect(core.setFailed).not.toHaveBeenCalled();
-    });
-
-    test('successfully uploads files with specified locale', async () => {
-        core.getInput.mockImplementation((name) => {
-            if (name === 'locale') return 'en';
-            return name === 'api_key' ? 'test-api-key' :
-                name === 'workspace_url' ? 'https://app.lingohub.com/test-workspace' :
-                    name === 'project_url' ? 'https://app.lingohub.com/test-workspace/test-project' :
-                        name === 'files' ? '*.json' : '';
-        });
-
-        await run();
-
-        expect(core.getInput).toHaveBeenCalledWith('locale', {required: false});
-        expect(core.info).toHaveBeenCalledWith('Using locale option: en');
-        expect(fetch).toHaveBeenCalledTimes(2);
-        expect(core.info).toHaveBeenCalledWith('Successfully uploaded test1.json');
-        expect(core.info).toHaveBeenCalledWith('Successfully uploaded test2.json');
+        expect(fetch).toHaveBeenCalledTimes(1);
+        expect(core.info).toHaveBeenCalledWith('Successfully uploaded zip with all files.');
         expect(core.setFailed).not.toHaveBeenCalled();
     });
 
@@ -100,15 +92,15 @@ describe('Lingohub Upload Action', () => {
             ok: false,
             status: 400,
             statusText: 'Bad Request',
-            json: jest.fn().mockResolvedValue({message: 'Invalid project URL'})
+            json: jest.fn().mockResolvedValue({message: 'Invalid project ID'})
         };
         fetch.mockResolvedValue(errorResponse);
 
         await run();
 
         expect(core.error).toHaveBeenCalledWith('Response status: 400');
-        expect(core.error).toHaveBeenCalledWith(expect.stringContaining('Invalid project URL'));
-        expect(core.setFailed).toHaveBeenCalledWith('Failed to upload test1.json: Invalid project URL');
+        expect(core.error).toHaveBeenCalledWith(expect.stringContaining('Invalid project ID'));
+        expect(core.setFailed).toHaveBeenCalledWith('Failed to upload zip: Invalid project ID');
     });
 
     test('handles missing required input', async () => {

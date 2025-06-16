@@ -30,7 +30,8 @@
     "@actions/core": "^1.11.1",
     "@actions/glob": "^0.5.0",
     "form-data": "^4.0.0",
-    "node-fetch": "^2.6.7"
+    "node-fetch": "^2.6.7",
+    "archiver": "^5.3.2"
   },
   "devDependencies": {
     "@vercel/ncc": "^0.38.3",
