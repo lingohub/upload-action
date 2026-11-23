@@ -49444,16 +49444,16 @@ function file_command_issueFileCommand(command, message) {
     if (!filePath) {
         throw new Error(`Unable to find environment variable for file command ${command}`);
     }
-    if (!fs.existsSync(filePath)) {
+    if (!external_fs_.existsSync(filePath)) {
         throw new Error(`Missing file at path: ${filePath}`);
     }
-    fs.appendFileSync(filePath, `${toCommandValue(message)}${os.EOL}`, {
+    external_fs_.appendFileSync(filePath, `${utils_toCommandValue(message)}${external_os_namespaceObject.EOL}`, {
         encoding: 'utf8'
     });
 }
 function file_command_prepareKeyValueMessage(key, value) {
-    const delimiter = `ghadelimiter_${crypto.randomUUID()}`;
-    const convertedValue = toCommandValue(value);
+    const delimiter = `ghadelimiter_${external_crypto_namespaceObject.randomUUID()}`;
+    const convertedValue = utils_toCommandValue(value);
     // These should realistically never happen, but just in case someone finds a
     // way to exploit uuid generation let's not allow keys or values that contain
     // the delimiter.
@@ -49463,7 +49463,7 @@ function file_command_prepareKeyValueMessage(key, value) {
     if (convertedValue.includes(delimiter)) {
         throw new Error(`Unexpected input: value should not contain the delimiter "${delimiter}"`);
     }
-    return `${key}<<${delimiter}${os.EOL}${convertedValue}${os.EOL}${delimiter}`;
+    return `${key}<<${delimiter}${external_os_namespaceObject.EOL}${convertedValue}${external_os_namespaceObject.EOL}${delimiter}`;
 }
 //# sourceMappingURL=file-command.js.map
 ;// CONCATENATED MODULE: external "path"
@@ -52002,7 +52002,7 @@ function exportVariable(name, val) {
  * ```
  */
 function core_setSecret(secret) {
-    issueCommand('add-mask', {}, secret);
+    command_issueCommand('add-mask', {}, secret);
 }
 /**
  * Prepends inputPath to the PATH (for this action and future actions)
@@ -52085,10 +52085,10 @@ function getBooleanInput(name, options) {
 function setOutput(name, value) {
     const filePath = process.env['GITHUB_OUTPUT'] || '';
     if (filePath) {
-        return issueFileCommand('OUTPUT', prepareKeyValueMessage(name, value));
+        return file_command_issueFileCommand('OUTPUT', file_command_prepareKeyValueMessage(name, value));
     }
-    process.stdout.write(os.EOL);
-    issueCommand('set-output', { name }, toCommandValue(value));
+    process.stdout.write(external_os_namespaceObject.EOL);
+    command_issueCommand('set-output', { name }, utils_toCommandValue(value));
 }
 /**
  * Enables or disables the echoing of commands into stdout for the rest of the step.
@@ -52108,7 +52108,7 @@ function setCommandEcho(enabled) {
  */
 function setFailed(message) {
     process.exitCode = ExitCode.Failure;
-    core_error(message);
+    error(message);
 }
 //-----------------------------------------------------------------------
 // Logging Commands
@@ -52131,7 +52131,7 @@ function core_debug(message) {
  * @param message error issue message. Errors will be converted to string via toString()
  * @param properties optional properties to add to the annotation.
  */
-function core_error(message, properties = {}) {
+function error(message, properties = {}) {
     command_issueCommand('error', utils_toCommandProperties(properties), message instanceof Error ? message.toString() : message);
 }
 /**
@@ -59200,6 +59200,223 @@ class JsonArchive extends Archiver {
   }
 }
 
+;// CONCATENATED MODULE: external "timers/promises"
+const promises_namespaceObject = __WEBPACK_EXTERNAL_createRequire(import.meta.url)("timers/promises");
+;// CONCATENATED MODULE: ./src/lingohub.js
+
+
+const API_BASE_URL = 'https://api.lingohub.com/v2';
+const POLL_INTERVAL_MS = 2000;
+
+const PROJECT_ID_PATTERN = /^pr_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const V1_PROJECT_ID_PATTERN = /^pr_[0-9A-Za-z]+-\d+$/;
+const PENDING_STATUSES = ['QUEUED', 'PROCESSING'];
+const MAX_RETRIES = 3;
+const MAX_RETRY_DELAY_MS = 60000;
+const REQUEST_TIMEOUT_MS = 60000;
+const UPLOAD_TIMEOUT_MS = 600000;
+
+class LingohubError extends Error {
+    constructor(message, {status, code} = {}) {
+        super(message);
+        this.name = 'LingohubError';
+        this.status = status;
+        this.code = code;
+    }
+}
+
+/**
+ * Accepts an API V2 project ID (pr_<uuid>), and explains where to find one when given anything else,
+ * in particular an API V1 project ID (pr_<base62>-<number>).
+ */
+function requireProjectId(projectId, v1Hint = '') {
+    if (PROJECT_ID_PATTERN.test(projectId)) {
+        return projectId;
+    }
+    const copyId = 'Open the project in LingoHub and choose Copy ID from its menu.';
+    if (V1_PROJECT_ID_PATTERN.test(projectId)) {
+        throw new LingohubError(
+            `project_id "${projectId}" is an API V1 project ID. This action uses API V2, whose project IDs look like `
+            + `pr_0197c8f2-5a6b-7cde-8f12-3456789abcde. ${copyId}${v1Hint}`);
+    }
+    throw new LingohubError(
+        `project_id "${projectId}" is not a LingoHub project ID such as pr_0197c8f2-5a6b-7cde-8f12-3456789abcde. ${copyId}`);
+}
+
+function parseTimeout(value, inputName = 'timeout') {
+    const seconds = Number(value || '300');
+    if (!Number.isInteger(seconds) || seconds < 1) {
+        throw new LingohubError(`${inputName} must be a whole number of seconds, got "${value}".`);
+    }
+    return seconds * 1000;
+}
+
+function parseBoolean(value, inputName, defaultValue) {
+    const normalized = (value || '').trim().toLowerCase();
+    if (normalized === '') {
+        return defaultValue;
+    }
+    if (['true', 'yes', 'on'].includes(normalized)) {
+        return true;
+    }
+    if (['false', 'no', 'off'].includes(normalized)) {
+        return false;
+    }
+    throw new LingohubError(`${inputName} must be true or false, got "${value}".`);
+}
+
+/**
+ * A small API V2 client. Every request carries the API key; it never follows redirects, so the key cannot travel to
+ * another host. Reads are retried on network errors, 429 and 502–504; writes only on 429, which the API answers
+ * before doing anything.
+ */
+function createClient({apiKey, userAgent, baseUrl = API_BASE_URL, sleep = promises_namespaceObject.setTimeout}) {
+    async function request(method, path, {query, json, form, timeoutMs = REQUEST_TIMEOUT_MS} = {}) {
+        const url = new URL(`${baseUrl}${path}`);
+        for (const [name, value] of Object.entries(query || {})) {
+            url.searchParams.set(name, value);
+        }
+        const headers = {'Authorization': `Bearer ${apiKey}`, 'Accept': 'application/json', 'User-Agent': userAgent};
+        let body;
+        if (json !== undefined) {
+            headers['Content-Type'] = 'application/json';
+            body = JSON.stringify(json);
+        } else if (form) {
+            body = form;
+        }
+        const isRead = method === 'GET';
+
+        for (let attempt = 0; ; attempt++) {
+            let response;
+            try {
+                response = await fetch(url, {method, headers, body, redirect: 'error', signal: AbortSignal.timeout(timeoutMs)});
+            } catch (error) {
+                if (isRead && attempt < MAX_RETRIES) {
+                    await sleep(backoff(attempt));
+                    continue;
+                }
+                throw new LingohubError(`${method} ${path} failed: ${error.cause?.message || error.message}`);
+            }
+
+            const retryable = response.status === 429 || (isRead && response.status >= 502 && response.status <= 504);
+            if (retryable && attempt < MAX_RETRIES) {
+                await response.body?.cancel();
+                await sleep(retryDelay(response, attempt));
+                continue;
+            }
+
+            const text = await response.text();
+            if (!response.ok) {
+                const problem = parseJson(text) || {detail: text.slice(0, 500)};
+                throw new LingohubError(problemMessage(method, path, response.status, problem),
+                    {status: response.status, code: problem.code});
+            }
+            const data = parseJson(text);
+            if (data === undefined) {
+                throw new LingohubError(`${method} ${path} answered HTTP ${response.status} without a JSON body.`);
+            }
+            return data;
+        }
+    }
+
+    return {
+        get: (path, query) => request('GET', path, {query}),
+        post: (path, json) => request('POST', path, {json}),
+        upload: (path, form) => request('POST', path, {form, timeoutMs: UPLOAD_TIMEOUT_MS})
+    };
+}
+
+function backoff(attempt) {
+    return Math.min(1000 * 2 ** attempt, MAX_RETRY_DELAY_MS);
+}
+
+function retryDelay(response, attempt) {
+    const retryAfter = response.headers.get('Retry-After');
+    if (retryAfter) {
+        const seconds = Number(retryAfter);
+        const milliseconds = Number.isFinite(seconds) ? seconds * 1000 : Date.parse(retryAfter) - Date.now();
+        if (Number.isFinite(milliseconds)) {
+            return Math.min(Math.max(milliseconds, 1000), MAX_RETRY_DELAY_MS);
+        }
+    }
+    return backoff(attempt);
+}
+
+function parseJson(text) {
+    if (!text) {
+        return undefined;
+    }
+    try {
+        return JSON.parse(text);
+    } catch {
+        return undefined;
+    }
+}
+
+function problemMessage(method, path, status, problem) {
+    let message = `${method} ${path} failed with HTTP ${status}`;
+    const summary = problem.detail || problem.title;
+    if (summary) {
+        message += `: ${summary}`;
+    }
+    const references = [problem.code && `code ${problem.code}`, problem.request_id && `request ${problem.request_id}`]
+        .filter(Boolean);
+    if (references.length > 0) {
+        message += ` (${references.join(', ')})`;
+    }
+    for (const error of problem.errors || []) {
+        const field = error.pointer || error.parameter;
+        message += `\n  - ${field ? `${field}: ` : ''}${error.detail}`;
+    }
+    if (status === 401) {
+        message += '\nCheck that api_key holds a valid LingoHub API key.';
+    }
+    return message;
+}
+
+/** The branch with this name, or the project's default branch when no name is given. */
+async function resolveBranchId(client, projectId, branchName) {
+    if (!branchName) {
+        const project = await client.get(`/projects/${projectId}`);
+        if (!project.default_branch_id) {
+            throw new LingohubError(`Project ${projectId} has no default branch yet; it is still being created.`);
+        }
+        return project.default_branch_id;
+    }
+    const filter = JSON.stringify({where: {_and: [{'branch[name]': {_eq: branchName}}]}});
+    const branches = await client.get(`/projects/${projectId}/branches`, {filter, limit: '1'});
+    const branch = branches.data?.[0];
+    if (!branch) {
+        throw new LingohubError(`Project ${projectId} has no branch named "${branchName}".`);
+    }
+    return branch.id;
+}
+
+/** Reads the job at `path` until it leaves QUEUED and PROCESSING, and returns it. */
+async function waitForJob(client, path, {label, timeoutMs, onStatus = () => {}, sleep = promises_namespaceObject.setTimeout, now = Date.now}) {
+    const deadline = now() + timeoutMs;
+    let lastStatus;
+    for (;;) {
+        const job = await client.get(path);
+        if (job.status !== lastStatus) {
+            onStatus(job.status);
+            lastStatus = job.status;
+        }
+        if (!PENDING_STATUSES.includes(job.status)) {
+            return job;
+        }
+        if (now() + POLL_INTERVAL_MS > deadline) {
+            throw new LingohubError(`${label} is still ${job.status} after ${Math.round(timeoutMs / 1000)} s. `
+                + 'It keeps running in LingoHub; raise timeout to wait longer.');
+        }
+        await sleep(POLL_INTERVAL_MS);
+    }
+}
+
+function describeStatusDetails(details) {
+    return details ? `${details.code}: ${details.detail}` : 'no details given';
+}
+
 ;// CONCATENATED MODULE: ./src/main.js
 
 
@@ -59208,136 +59425,150 @@ class JsonArchive extends Archiver {
 
 
 
-async function run() {
+
+const USER_AGENT = 'lingohub-upload-action/2.0.0';
+const V1_HINT = ' Workflows that keep the API V1 project ID can stay on lingohub/upload-action@v1.';
+const FAILED_STATUSES = ['PARTIALLY_SUCCEEDED', 'FAILED', 'CANCELLED'];
+
+/** `sleep` and `now` exist for tests; the action itself runs with the defaults. */
+async function run({sleep, now} = {}) {
     try {
-        // Get inputs
         const apiKey = getInput('api_key', {required: true});
-        const projectId = getInput('project_id', {required: true});
-        const filePath = getInput('files', {required: true});
+        core_setSecret(apiKey);
+        const projectId = requireProjectId(getInput('project_id', {required: true}).trim(), V1_HINT);
+        const filePatterns = getInput('files', {required: true});
+        const branchName = getInput('branch').trim();
+        const wait = parseBoolean(getInput('wait'), 'wait', true);
+        const timeoutMs = parseTimeout(getInput('timeout'));
 
         info(`Starting Lingohub Upload Action with project ID: ${projectId}`);
-        info(`Using file patterns: ${filePath}`);
+        info(`Using file patterns: ${filePatterns}`);
 
-        // Find files based on pattern
-        info('Searching for files matching the provided patterns...');
-        const patterns = filePath.split(',').map(p => p.trim());
-        let files = [];
-        for (const pattern of patterns) {
-            info(`Processing pattern: ${pattern}`);
-            const globber = await create(pattern);
-            const matched = await globber.glob();
-            info(`Found ${matched.length} files matching pattern: ${pattern}`);
-
-            for (const file of matched) {
-                // Avoid duplicates
-                if (!files.includes(file)) {
-                    files.push(file);
-                }
-            }
-        }
-
-        info(`Total unique files found: ${files.length}`);
+        const files = await findFiles(filePatterns);
         if (files.length === 0) {
-            setFailed(`No files found matching pattern: ${filePath}`);
+            setFailed(`No files found matching pattern: ${filePatterns}`);
+            return;
+        }
+        const zipBuffer = await createZip(files);
+
+        const client = createClient({apiKey, userAgent: USER_AGENT, sleep});
+        const branchId = await resolveBranchId(client, projectId, branchName);
+        info(branchName
+            ? `Uploading to branch "${branchName}" (${branchId})`
+            : `Uploading to the project's default branch (${branchId})`);
+
+        const formData = new FormData();
+        formData.append('file', new Blob([zipBuffer], {type: 'application/zip'}), 'resources.zip');
+        const uploadStartTime = Date.now();
+        const job = await client.upload(`/branches/${branchId}/imports`, formData);
+        const importId = job.data.id;
+        info(`Uploaded in ${((Date.now() - uploadStartTime) / 1000).toFixed(2)}s; import ${importId} is ${job.data.status}.`);
+        setOutput('import_id', importId);
+        setOutput('status', job.data.status);
+
+        if (!wait) {
+            info('Not waiting for the import to finish (wait: false).');
             return;
         }
 
-        // Create a zip archive in memory
-        info('Creating zip archive...');
-        const archive = new ZipArchive({zlib: {level: 9}});
-        const zipStream = new external_stream_.PassThrough();
-        const zipChunks = [];
-
-        zipStream.on('data', chunk => {
-            zipChunks.push(chunk);
+        const result = await waitForJob(client, `/imports/${importId}`, {
+            label: `Import ${importId}`,
+            timeoutMs,
+            sleep,
+            now,
+            onStatus: status => info(`Import status: ${status}`)
         });
+        setOutput('status', result.status);
 
-        archive.on('warning', err => warning(`Zip warning: ${err.message}`));
-        archive.on('error', err => {
-            core_error(`Zip error: ${err.message}`);
-            throw err;
-        });
-
-        archive.pipe(zipStream);
-
-        for (const file of files) {
-            try {
-                // Check if file exists and is readable
-                external_fs_.accessSync(file, external_fs_.constants.R_OK);
-                const stats = external_fs_.statSync(file);
-
-                // Add file to archive with its relative path from the repo root
-                const relativePath = external_path_namespaceObject.relative(process.cwd(), file);
-                archive.file(file, {name: relativePath});
-                info(`Added to zip: ${relativePath} (${formatBytes(stats.size)})`);
-            } catch (error) {
-                warning(`Skipping file ${file}: ${error.message}`);
-            }
+        if (FAILED_STATUSES.includes(result.status)) {
+            await reportFailedEntries(client, importId);
+            setFailed(`Import ${importId} ended ${result.status} (${describeStatusDetails(result.status_details)}).`);
+            return;
         }
-
-        // Wait for the archive to finish and get the buffer
-        info('Finalizing zip archive...');
-
-        await new Promise((resolve, reject) => {
-            archive.on('finish', () => {
-                const totalBytes = zipChunks.reduce((a, b) => a + b.length, 0);
-                info(`Zip archive created successfully: ${formatBytes(totalBytes)}`);
-                resolve();
-            });
-            archive.on('error', err => {
-                core_error(`Error finalizing zip: ${err.message}`);
-                reject(err);
-            });
-            archive.finalize();
-        });
-
-        const zipBuffer = Buffer.concat(zipChunks);
-
-        // Prepare form data
-        info('Preparing upload request...');
-        const formData = new FormData();
-        formData.append('file', new Blob([zipBuffer], {type: 'application/zip'}), 'resources.zip');
-
-        // Upload zip to Lingohub
-        // Note: Since we are using projetId, no need for workspaceUrl in the URL
-        // dummyWorkspaceUrl is needed to cal the correct API endpoint
-        const apiUrl = `https://api.lingohub.com/v1/dummyWorkspaceUrl/projects/${projectId}/resources/zip`;
-        info(`Uploading zip (${formatBytes(zipBuffer.length)}) to Lingohub API: ${apiUrl}`);
-
-        let uploadStartTime = Date.now();
-        const response = await fetch(apiUrl, {
-            method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${apiKey}`,
-                'Accept': 'application/json'
-            },
-            body: formData
-        });
-        let uploadDuration = Date.now() - uploadStartTime;
-
-        info(`Upload completed in ${(uploadDuration / 1000).toFixed(2)}s with status: ${response.status} ${response.statusText}`);
-
-        const data = await response.json();
-        info(`Response data: ${JSON.stringify(data, null, 2)}`);
-
-        if (!response.ok) {
-            core_error(`Response status: ${response.status}`);
-            core_error(`Response body: ${JSON.stringify(data)}`);
-            throw new Error(`Failed to upload zip: ${data.message || response.statusText}`);
-        }
-
-        info('Successfully uploaded zip with all files.');
-
+        info(`Import ${result.status}: ${result.texts_created} texts created, ${result.texts_updated} texts updated, `
+            + `${result.keys_deactivated} keys deactivated, ${result.keys_reactivated} keys reactivated, `
+            + `${result.keys_renamed} keys renamed.`);
     } catch (error) {
-        core_error(`Exception: ${error.message}`);
-        if (error.stack) {
-            core_error(`Stack trace: ${error.stack}`);
+        if (!(error instanceof LingohubError) && error.stack) {
+            core_debug(error.stack);
         }
         setFailed(error.message);
     }
 }
 
-// Helper function to format bytes to human-readable format
+async function findFiles(filePatterns) {
+    info('Searching for files matching the provided patterns...');
+    const patterns = filePatterns.split(',').map(p => p.trim());
+    const files = [];
+    for (const pattern of patterns) {
+        info(`Processing pattern: ${pattern}`);
+        const globber = await create(pattern);
+        const matched = await globber.glob();
+        info(`Found ${matched.length} files matching pattern: ${pattern}`);
+
+        for (const file of matched) {
+            if (!files.includes(file)) {
+                files.push(file);
+            }
+        }
+    }
+    info(`Total unique files found: ${files.length}`);
+    return files;
+}
+
+async function createZip(files) {
+    info('Creating zip archive...');
+    const archive = new ZipArchive({zlib: {level: 9}});
+    const zipStream = new external_stream_.PassThrough();
+    const zipChunks = [];
+
+    // Listen before anything is added: the archive reports errors while it reads the files.
+    const written = new Promise((resolve, reject) => {
+        zipStream.on('data', chunk => zipChunks.push(chunk));
+        zipStream.on('end', resolve);
+        archive.on('error', reject);
+    });
+    archive.on('warning', err => warning(`Zip warning: ${err.message}`));
+    archive.pipe(zipStream);
+
+    for (const file of files) {
+        try {
+            external_fs_.accessSync(file, external_fs_.constants.R_OK);
+            const stats = external_fs_.statSync(file);
+
+            // The path relative to the repository root is the file's path in LingoHub.
+            const relativePath = external_path_namespaceObject.relative(process.cwd(), file);
+            archive.file(file, {name: relativePath});
+            info(`Added to zip: ${relativePath} (${formatBytes(stats.size)})`);
+        } catch (error) {
+            warning(`Skipping file ${file}: ${error.message}`);
+        }
+    }
+
+    info('Finalizing zip archive...');
+    await Promise.all([archive.finalize(), written]);
+
+    const zipBuffer = Buffer.concat(zipChunks);
+    info(`Zip archive created successfully: ${formatBytes(zipBuffer.length)}`);
+    return zipBuffer;
+}
+
+/** Names the files that failed; a failure here must not hide the import's own result. */
+async function reportFailedEntries(client, importId) {
+    try {
+        const filter = JSON.stringify({where: {_and: [{'import_entry[status]': {_eq: 'FAILED'}}]}});
+        const entries = await client.get(`/imports/${importId}/entries`, {filter, limit: '100'});
+        for (const entry of entries.data || []) {
+            error(`${entry.file_path} (${entry.language_code}): ${describeStatusDetails(entry.status_details)}`);
+        }
+        if (entries.has_more) {
+            error('More files failed; the import\'s entries in LingoHub list all of them.');
+        }
+    } catch (error) {
+        warning(`Could not list the files that failed: ${error.message}`);
+    }
+}
+
 function formatBytes(bytes, decimals = 2) {
     if (bytes === 0) return '0 Bytes';
 

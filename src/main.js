@@ -4,137 +4,160 @@ import {ZipArchive} from 'archiver';
 import fs from 'fs';
 import path from 'path';
 import {PassThrough} from 'stream';
+import {
+    createClient,
+    describeStatusDetails,
+    LingohubError,
+    parseBoolean,
+    parseTimeout,
+    requireProjectId,
+    resolveBranchId,
+    waitForJob
+} from './lingohub.js';
 
-export async function run() {
+const USER_AGENT = 'lingohub-upload-action/2.0.0';
+const V1_HINT = ' Workflows that keep the API V1 project ID can stay on lingohub/upload-action@v1.';
+const FAILED_STATUSES = ['PARTIALLY_SUCCEEDED', 'FAILED', 'CANCELLED'];
+
+/** `sleep` and `now` exist for tests; the action itself runs with the defaults. */
+export async function run({sleep, now} = {}) {
     try {
-        // Get inputs
         const apiKey = core.getInput('api_key', {required: true});
-        const projectId = core.getInput('project_id', {required: true});
-        const filePath = core.getInput('files', {required: true});
+        core.setSecret(apiKey);
+        const projectId = requireProjectId(core.getInput('project_id', {required: true}).trim(), V1_HINT);
+        const filePatterns = core.getInput('files', {required: true});
+        const branchName = core.getInput('branch').trim();
+        const wait = parseBoolean(core.getInput('wait'), 'wait', true);
+        const timeoutMs = parseTimeout(core.getInput('timeout'));
 
         core.info(`Starting Lingohub Upload Action with project ID: ${projectId}`);
-        core.info(`Using file patterns: ${filePath}`);
+        core.info(`Using file patterns: ${filePatterns}`);
 
-        // Find files based on pattern
-        core.info('Searching for files matching the provided patterns...');
-        const patterns = filePath.split(',').map(p => p.trim());
-        let files = [];
-        for (const pattern of patterns) {
-            core.info(`Processing pattern: ${pattern}`);
-            const globber = await glob.create(pattern);
-            const matched = await globber.glob();
-            core.info(`Found ${matched.length} files matching pattern: ${pattern}`);
-
-            for (const file of matched) {
-                // Avoid duplicates
-                if (!files.includes(file)) {
-                    files.push(file);
-                }
-            }
-        }
-
-        core.info(`Total unique files found: ${files.length}`);
+        const files = await findFiles(filePatterns);
         if (files.length === 0) {
-            core.setFailed(`No files found matching pattern: ${filePath}`);
+            core.setFailed(`No files found matching pattern: ${filePatterns}`);
+            return;
+        }
+        const zipBuffer = await createZip(files);
+
+        const client = createClient({apiKey, userAgent: USER_AGENT, sleep});
+        const branchId = await resolveBranchId(client, projectId, branchName);
+        core.info(branchName
+            ? `Uploading to branch "${branchName}" (${branchId})`
+            : `Uploading to the project's default branch (${branchId})`);
+
+        const formData = new FormData();
+        formData.append('file', new Blob([zipBuffer], {type: 'application/zip'}), 'resources.zip');
+        const uploadStartTime = Date.now();
+        const job = await client.upload(`/branches/${branchId}/imports`, formData);
+        const importId = job.data.id;
+        core.info(`Uploaded in ${((Date.now() - uploadStartTime) / 1000).toFixed(2)}s; import ${importId} is ${job.data.status}.`);
+        core.setOutput('import_id', importId);
+        core.setOutput('status', job.data.status);
+
+        if (!wait) {
+            core.info('Not waiting for the import to finish (wait: false).');
             return;
         }
 
-        // Create a zip archive in memory
-        core.info('Creating zip archive...');
-        const archive = new ZipArchive({zlib: {level: 9}});
-        const zipStream = new PassThrough();
-        const zipChunks = [];
-
-        zipStream.on('data', chunk => {
-            zipChunks.push(chunk);
+        const result = await waitForJob(client, `/imports/${importId}`, {
+            label: `Import ${importId}`,
+            timeoutMs,
+            sleep,
+            now,
+            onStatus: status => core.info(`Import status: ${status}`)
         });
+        core.setOutput('status', result.status);
 
-        archive.on('warning', err => core.warning(`Zip warning: ${err.message}`));
-        archive.on('error', err => {
-            core.error(`Zip error: ${err.message}`);
-            throw err;
-        });
-
-        archive.pipe(zipStream);
-
-        for (const file of files) {
-            try {
-                // Check if file exists and is readable
-                fs.accessSync(file, fs.constants.R_OK);
-                const stats = fs.statSync(file);
-
-                // Add file to archive with its relative path from the repo root
-                const relativePath = path.relative(process.cwd(), file);
-                archive.file(file, {name: relativePath});
-                core.info(`Added to zip: ${relativePath} (${formatBytes(stats.size)})`);
-            } catch (error) {
-                core.warning(`Skipping file ${file}: ${error.message}`);
-            }
+        if (FAILED_STATUSES.includes(result.status)) {
+            await reportFailedEntries(client, importId);
+            core.setFailed(`Import ${importId} ended ${result.status} (${describeStatusDetails(result.status_details)}).`);
+            return;
         }
-
-        // Wait for the archive to finish and get the buffer
-        core.info('Finalizing zip archive...');
-
-        await new Promise((resolve, reject) => {
-            archive.on('finish', () => {
-                const totalBytes = zipChunks.reduce((a, b) => a + b.length, 0);
-                core.info(`Zip archive created successfully: ${formatBytes(totalBytes)}`);
-                resolve();
-            });
-            archive.on('error', err => {
-                core.error(`Error finalizing zip: ${err.message}`);
-                reject(err);
-            });
-            archive.finalize();
-        });
-
-        const zipBuffer = Buffer.concat(zipChunks);
-
-        // Prepare form data
-        core.info('Preparing upload request...');
-        const formData = new FormData();
-        formData.append('file', new Blob([zipBuffer], {type: 'application/zip'}), 'resources.zip');
-
-        // Upload zip to Lingohub
-        // Note: Since we are using projetId, no need for workspaceUrl in the URL
-        // dummyWorkspaceUrl is needed to cal the correct API endpoint
-        const apiUrl = `https://api.lingohub.com/v1/dummyWorkspaceUrl/projects/${projectId}/resources/zip`;
-        core.info(`Uploading zip (${formatBytes(zipBuffer.length)}) to Lingohub API: ${apiUrl}`);
-
-        let uploadStartTime = Date.now();
-        const response = await fetch(apiUrl, {
-            method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${apiKey}`,
-                'Accept': 'application/json'
-            },
-            body: formData
-        });
-        let uploadDuration = Date.now() - uploadStartTime;
-
-        core.info(`Upload completed in ${(uploadDuration / 1000).toFixed(2)}s with status: ${response.status} ${response.statusText}`);
-
-        const data = await response.json();
-        core.info(`Response data: ${JSON.stringify(data, null, 2)}`);
-
-        if (!response.ok) {
-            core.error(`Response status: ${response.status}`);
-            core.error(`Response body: ${JSON.stringify(data)}`);
-            throw new Error(`Failed to upload zip: ${data.message || response.statusText}`);
-        }
-
-        core.info('Successfully uploaded zip with all files.');
-
+        core.info(`Import ${result.status}: ${result.texts_created} texts created, ${result.texts_updated} texts updated, `
+            + `${result.keys_deactivated} keys deactivated, ${result.keys_reactivated} keys reactivated, `
+            + `${result.keys_renamed} keys renamed.`);
     } catch (error) {
-        core.error(`Exception: ${error.message}`);
-        if (error.stack) {
-            core.error(`Stack trace: ${error.stack}`);
+        if (!(error instanceof LingohubError) && error.stack) {
+            core.debug(error.stack);
         }
         core.setFailed(error.message);
     }
 }
 
-// Helper function to format bytes to human-readable format
+async function findFiles(filePatterns) {
+    core.info('Searching for files matching the provided patterns...');
+    const patterns = filePatterns.split(',').map(p => p.trim());
+    const files = [];
+    for (const pattern of patterns) {
+        core.info(`Processing pattern: ${pattern}`);
+        const globber = await glob.create(pattern);
+        const matched = await globber.glob();
+        core.info(`Found ${matched.length} files matching pattern: ${pattern}`);
+
+        for (const file of matched) {
+            if (!files.includes(file)) {
+                files.push(file);
+            }
+        }
+    }
+    core.info(`Total unique files found: ${files.length}`);
+    return files;
+}
+
+async function createZip(files) {
+    core.info('Creating zip archive...');
+    const archive = new ZipArchive({zlib: {level: 9}});
+    const zipStream = new PassThrough();
+    const zipChunks = [];
+
+    // Listen before anything is added: the archive reports errors while it reads the files.
+    const written = new Promise((resolve, reject) => {
+        zipStream.on('data', chunk => zipChunks.push(chunk));
+        zipStream.on('end', resolve);
+        archive.on('error', reject);
+    });
+    archive.on('warning', err => core.warning(`Zip warning: ${err.message}`));
+    archive.pipe(zipStream);
+
+    for (const file of files) {
+        try {
+            fs.accessSync(file, fs.constants.R_OK);
+            const stats = fs.statSync(file);
+
+            // The path relative to the repository root is the file's path in LingoHub.
+            const relativePath = path.relative(process.cwd(), file);
+            archive.file(file, {name: relativePath});
+            core.info(`Added to zip: ${relativePath} (${formatBytes(stats.size)})`);
+        } catch (error) {
+            core.warning(`Skipping file ${file}: ${error.message}`);
+        }
+    }
+
+    core.info('Finalizing zip archive...');
+    await Promise.all([archive.finalize(), written]);
+
+    const zipBuffer = Buffer.concat(zipChunks);
+    core.info(`Zip archive created successfully: ${formatBytes(zipBuffer.length)}`);
+    return zipBuffer;
+}
+
+/** Names the files that failed; a failure here must not hide the import's own result. */
+async function reportFailedEntries(client, importId) {
+    try {
+        const filter = JSON.stringify({where: {_and: [{'import_entry[status]': {_eq: 'FAILED'}}]}});
+        const entries = await client.get(`/imports/${importId}/entries`, {filter, limit: '100'});
+        for (const entry of entries.data || []) {
+            core.error(`${entry.file_path} (${entry.language_code}): ${describeStatusDetails(entry.status_details)}`);
+        }
+        if (entries.has_more) {
+            core.error('More files failed; the import\'s entries in LingoHub list all of them.');
+        }
+    } catch (error) {
+        core.warning(`Could not list the files that failed: ${error.message}`);
+    }
+}
+
 function formatBytes(bytes, decimals = 2) {
     if (bytes === 0) return '0 Bytes';
 

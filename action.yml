@@ -9,11 +9,27 @@ inputs:
     description: 'Lingohub API key'
     required: true
   project_id:
-    description: 'Lingohub project ID (e.g., pr_18JCETCbSz7e-40731)'
+    description: 'Lingohub project ID from the project menu''s Copy ID (e.g. pr_0197c8f2-5a6b-7cde-8f12-3456789abcde)'
     required: true
   files:
     description: 'Paths or glob pattern to files to upload (e.g. ./locales/*.json)'
     required: true
+  branch:
+    description: 'Name of the Lingohub project branch to upload to. Defaults to the project''s default branch.'
+    required: false
+  wait:
+    description: 'Wait for Lingohub to finish the import and fail the step if it fails'
+    required: false
+    default: 'true'
+  timeout:
+    description: 'Seconds to wait for the import to finish'
+    required: false
+    default: '300'
+outputs:
+  import_id:
+    description: 'ID of the Lingohub import'
+  status:
+    description: 'Status of the import: QUEUED or PROCESSING when not waiting, otherwise SUCCEEDED, PARTIALLY_SUCCEEDED, FAILED, CANCELLED or SKIPPED'
 runs:
   using: 'node24'
   main: 'dist/index.js'
