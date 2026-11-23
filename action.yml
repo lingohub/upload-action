@@ -15,5 +15,5 @@ inputs:
     description: 'Paths or glob pattern to files to upload (e.g. ./locales/*.json)'
     required: true
 runs:
-  using: 'node16'
+  using: 'node24'
   main: 'dist/index.js'

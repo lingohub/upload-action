@@ -1,12 +1,13 @@
 {
   "name": "lingohub-upload-action",
-  "version": "1.5.3",
+  "version": "1.6.0",
   "description": "GitHub Action to upload files to Lingohub.",
+  "type": "module",
   "main": "dist/index.js",
   "scripts": {
     "build": "ncc build src/index.js -o dist",
     "prepare": "npm run build",
-    "test": "jest"
+    "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js"
   },
   "keywords": [
     "GitHub",
@@ -26,15 +27,21 @@
     "url": "https://github.com/lingohub/upload-action/issues"
   },
   "homepage": "https://github.com/lingohub/upload-action#readme",
+  "engines": {
+    "node": ">=24"
+  },
+  "jest": {
+    "transform": {},
+    "watchman": false
+  },
   "dependencies": {
-    "@actions/core": "^1.11.1",
-    "@actions/glob": "^0.5.0",
-    "form-data": "^4.0.0",
-    "node-fetch": "^2.6.7",
-    "archiver": "^5.3.2"
+    "@actions/core": "^3.0.1",
+    "@actions/glob": "^0.7.0",
+    "archiver": "^8.0.0"
   },
   "devDependencies": {
-    "@vercel/ncc": "^0.38.3",
-    "jest": "^30.0.0"
+    "@jest/globals": "^30.5.2",
+    "@vercel/ncc": "^0.45.0",
+    "jest": "^30.5.2"
   }
 }
