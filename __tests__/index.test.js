@@ -1,45 +1,53 @@
-const core = require('@actions/core');
-const glob = require('@actions/glob');
-const fetch = require('node-fetch');
-const fs = require('fs');
+import {jest} from '@jest/globals';
 
-// Mock dependencies
-jest.mock('@actions/core');
-jest.mock('@actions/glob');
-jest.mock('node-fetch');
-jest.mock('fs', () => ({
-    ...jest.requireActual('fs'),
-    createReadStream: jest.fn().mockReturnValue('file-stream'),
+const core = {
+    getInput: jest.fn(),
+    info: jest.fn(),
+    warning: jest.fn(),
+    error: jest.fn(),
+    setFailed: jest.fn()
+};
+const glob = {
+    create: jest.fn()
+};
+const fs = {
     accessSync: jest.fn(),
-    statSync: jest.fn().mockReturnValue({ size: 1024 }),
-    constants: { R_OK: 4 }
-}));
+    statSync: jest.fn(),
+    constants: {R_OK: 4}
+};
 
-jest.mock('archiver', () => {
-    return jest.fn(() => {
+jest.unstable_mockModule('@actions/core', () => core);
+jest.unstable_mockModule('@actions/glob', () => glob);
+jest.unstable_mockModule('fs', () => ({default: fs, ...fs}));
+jest.unstable_mockModule('archiver', () => ({
+    ZipArchive: jest.fn(() => {
         const events = {};
         return {
             file: jest.fn(),
             pipe: jest.fn().mockReturnThis(),
-            finalize: jest.fn().mockImplementation(function () {
+            finalize: jest.fn().mockImplementation(() => {
                 // Simulate async finalize and emit 'finish'
                 setImmediate(() => {
                     if (events['finish']) events['finish']();
                 });
                 return Promise.resolve();
             }),
-            on: (event, cb) => { events[event] = cb; },
-            emit: (event, ...args) => { if (events[event]) events[event](...args); }
+            on: (event, cb) => { events[event] = cb; }
         };
-    });
-});
+    })
+}));
 
-// Import the run function directly
-const { run } = require('../src/index');
+// Import the run function after the mocks are registered
+const {run} = await import('../src/main.js');
 
 describe('Lingohub Upload Action', () => {
+    const originalFetch = globalThis.fetch;
+    let fetch;
+
     beforeEach(() => {
         jest.clearAllMocks();
+
+        fs.statSync.mockReturnValue({size: 1024});
 
         // Setup default mocks
         core.getInput.mockImplementation((name) => {
@@ -68,7 +76,12 @@ describe('Lingohub Upload Action', () => {
             statusText: 'OK',
             json: jest.fn().mockResolvedValue({success: true})
         };
-        fetch.mockResolvedValue(mockResponse);
+        fetch = jest.fn().mockResolvedValue(mockResponse);
+        globalThis.fetch = fetch;
+    });
+
+    afterAll(() => {
+        globalThis.fetch = originalFetch;
     });
 
     test('successfully uploads files as a zip', async () => {
@@ -85,6 +98,10 @@ describe('Lingohub Upload Action', () => {
                 })
             })
         );
+        const {body} = fetch.mock.calls[0][1];
+        const file = body.get('file');
+        expect(file.name).toBe('resources.zip');
+        expect(file.type).toBe('application/zip');
         expect(core.info).toHaveBeenCalledWith('Successfully uploaded zip with all files.');
         expect(core.setFailed).not.toHaveBeenCalled();
     });
